@@ -28,10 +28,10 @@ pub struct CatalogState {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct CatalogPath {
+pub struct CatalogPath {
     #[serde(rename = "type")]
-    content_type: String,
-    id: String,
+    pub content_type: String,
+    pub id: String,
 }
 
 pub async fn catalog_handler(

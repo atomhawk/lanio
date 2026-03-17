@@ -24,6 +24,12 @@ pub struct Config {
 
     pub tmdb_api_key: String,
 
+    #[serde(default = "default_tmdb_base_url")]
+    pub tmdb_base_url: String,
+
+    #[serde(default = "default_tmdb_image_base_url")]
+    pub tmdb_image_base_url: String,
+
     /// Optional password for protecting Stremio routes.
     /// When set, all Stremio routes are prefixed with a 256-character token derived from this password.
     #[serde(default)]
@@ -40,6 +46,14 @@ fn default_media_path() -> PathBuf {
 
 fn default_port() -> u16 {
     8078
+}
+
+fn default_tmdb_base_url() -> String {
+    "https://api.themoviedb.org/3".to_string()
+}
+
+fn default_tmdb_image_base_url() -> String {
+    "https://image.tmdb.org/t/p/w500".to_string()
 }
 
 impl Config {
@@ -71,6 +85,8 @@ mod tests {
             base_url: None,
             public_url: None,
             tmdb_api_key: String::new(),
+            tmdb_base_url: default_tmdb_base_url(),
+            tmdb_image_base_url: default_tmdb_image_base_url(),
             password: Some(password.to_string()),
             auth_token: Some(compute_token(password)),
         }
@@ -83,6 +99,8 @@ mod tests {
             base_url: None,
             public_url: None,
             tmdb_api_key: String::new(),
+            tmdb_base_url: default_tmdb_base_url(),
+            tmdb_image_base_url: default_tmdb_image_base_url(),
             password: None,
             auth_token: None,
         }
@@ -118,6 +136,9 @@ mod tests {
     #[test]
     fn auth_token_derived_from_password() {
         let config = config_with_password("mypass");
-        assert_eq!(config.auth_token.as_deref(), Some(compute_token("mypass").as_str()));
+        assert_eq!(
+            config.auth_token.as_deref(),
+            Some(compute_token("mypass").as_str())
+        );
     }
 }
