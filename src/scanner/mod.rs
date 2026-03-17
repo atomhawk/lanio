@@ -4,7 +4,6 @@ use crate::config::Config;
 use crate::index::types::{ContentType, FileInfo, ParsedMetadata};
 use crate::index::MediaIndex;
 use crate::metadata::TmdbClient;
-use notify::event::ModifyKind;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use parser::{extract_imdb_id, parse_filename};
 use std::path::{Path, PathBuf};
@@ -82,21 +81,19 @@ impl MediaScanner {
 
         // Process events
         while let Some(event) = rx.recv().await {
+            tracing::debug!("Watcher event: {:?}", event);
             match event.kind {
                 EventKind::Create(_) => {
-                    tracing::debug!("Creation detected: {event:?}");
                     for path in event.paths {
                         self.handle_creation(&path).await;
                     }
                 }
                 EventKind::Remove(_) => {
-                    tracing::debug!("Removal detected: {event:?}");
                     for path in event.paths {
                         self.handle_removal(&path);
                     }
                 }
-                EventKind::Modify(ModifyKind::Name(_)) => {
-                    tracing::debug!("Rename detected: {event:?}");
+                EventKind::Modify(_) => {
                     for path in event.paths {
                         self.handle_rename(&path).await;
                     }
@@ -158,7 +155,10 @@ impl MediaScanner {
                     tracing::error!("Failed to add file {:?}: {}", path, e);
                 }
             } else {
-                tracing::info!("Detected video file rename, file gone, removing: {:?}", path);
+                tracing::info!(
+                    "Detected video file rename, file gone, removing: {:?}",
+                    path
+                );
                 self.index.remove_by_path(path);
             }
         } else if path.is_dir() {
@@ -167,7 +167,10 @@ impl MediaScanner {
                 tracing::error!("Failed to scan directory {:?}: {}", path, e);
             }
         } else if !path.exists() && path.extension().is_none() {
-            tracing::info!("Detected directory rename, removing stale entries under: {:?}", path);
+            tracing::info!(
+                "Detected directory rename, removing stale entries under: {:?}",
+                path
+            );
             self.index.remove_by_dir(path);
         }
     }
@@ -382,12 +385,18 @@ mod tests {
             base_url: None,
             public_url: None,
             tmdb_api_key: "fake".to_string(),
+            tmdb_base_url: "http://localhost".to_string(),
+            tmdb_image_base_url: "http://localhost".to_string(),
             password: None,
             auth_token: None,
         });
         MediaScanner::new(
             Arc::new(MediaIndex::new()),
-            Arc::new(TmdbClient::new("fake".to_string())),
+            Arc::new(TmdbClient::new(
+                "fake".to_string(),
+                "http://localhost".to_string(),
+                "http://localhost".to_string(),
+            )),
             config,
         )
     }
@@ -398,7 +407,10 @@ mod tests {
         assert!(!scanner.scanning.load(Ordering::SeqCst));
         // scan() should always reset the flag, even if do_scan returns an error
         let _ = scanner.scan().await;
-        assert!(!scanner.scanning.load(Ordering::SeqCst), "scanning flag must be false after scan() returns");
+        assert!(
+            !scanner.scanning.load(Ordering::SeqCst),
+            "scanning flag must be false after scan() returns"
+        );
     }
 
     #[tokio::test]
@@ -409,7 +421,10 @@ mod tests {
         // A second call should return Ok immediately without touching the flag
         let result = scanner.scan().await;
         assert!(result.is_ok());
-        assert!(scanner.scanning.load(Ordering::SeqCst), "flag should remain true — only the original caller should reset it");
+        assert!(
+            scanner.scanning.load(Ordering::SeqCst),
+            "flag should remain true — only the original caller should reset it"
+        );
         // Clean up
         scanner.scanning.store(false, Ordering::SeqCst);
     }

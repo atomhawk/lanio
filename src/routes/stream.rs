@@ -44,8 +44,8 @@ pub struct StreamState {
 #[derive(Deserialize)]
 pub struct StreamPath {
     #[serde(rename = "type")]
-    content_type: String,
-    id: String,
+    pub content_type: String,
+    pub id: String,
 }
 
 pub async fn stream_handler(

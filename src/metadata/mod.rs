@@ -19,11 +19,7 @@ pub struct TmdbClient {
 }
 
 impl TmdbClient {
-    pub fn new(api_key: String) -> Self {
-        Self::new_with_base_url(api_key, "https://api.themoviedb.org/3".to_string())
-    }
-
-    pub fn new_with_base_url(api_key: String, base_url: String) -> Self {
+    pub fn new(api_key: String, base_url: String, image_base_url: String) -> Self {
         let cache = Cache::builder()
             .max_capacity(1000)
             .time_to_live(Duration::from_secs(86400)) // 24 hours
@@ -35,7 +31,7 @@ impl TmdbClient {
             cache,
             rate_limiter: RateLimiter::new(40), // 40 requests per 10 seconds
             base_url,
-            image_base_url: "https://image.tmdb.org/t/p/w500".to_string(),
+            image_base_url,
         }
     }
 
