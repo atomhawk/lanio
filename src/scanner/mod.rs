@@ -1,4 +1,5 @@
-pub mod parser;
+pub mod parser; 
+
 
 use crate::config::Config;
 use crate::index::types::{ContentType, FileInfo, ParsedMetadata};
