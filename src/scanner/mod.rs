@@ -200,7 +200,7 @@ impl MediaScanner {
         // Index the file. If it fails, bubble up the error using '?'
         self.index_file(&path).await?;
 
-        Ok(true)
+        Ok(())
     }
 
     pub async fn scan(&self) -> anyhow::Result<()> {
