@@ -247,14 +247,15 @@ impl MediaScanner {
     fn scan_directory(&self, dir_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
         let mut files = Vec::new();
 
-        // Use WalkDir without following directory symlinks
+        // 1. Tell WalkDir to follow directory symlinks so it enters symlinked folders
         for entry in WalkDir::new(dir_path)
+            .follow_links(true)
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            // Safely fetch link metadata without traversing past it
-            let is_valid_target = match std::fs::symlink_metadata(entry.path()) {
-                Ok(metadata) => metadata.is_file() || metadata.file_type().is_symlink(),
+            // 2. Use standard metadata() to ensure the target actually resolves to a real file
+            let is_valid_target = match std::fs::metadata(entry.path()) {
+                Ok(metadata) => metadata.is_file(),
                 Err(_) => false,
             };
 
@@ -265,7 +266,7 @@ impl MediaScanner {
             if let Some(ext) = entry.path().extension() {
                 if let Some(ext_str) = ext.to_str() {
                     if VIDEO_EXTENSIONS.contains(&ext_str.to_lowercase().as_str()) {
-                        // Keep the exact path of the symlink file without canonicalizing it!
+                        // Keep the exact path found by walkdir (the symlink path/name)
                         files.push(entry.path().to_path_buf());
                     }
                 }
