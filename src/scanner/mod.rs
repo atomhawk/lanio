@@ -186,13 +186,13 @@ impl MediaScanner {
     }
 
     async fn add_file(&self, file_path: &Path) -> anyhow::Result<()> {
-        // FIXED: Removed `.canonicalize()` from single file processing too. 
-        // This ensures manually triggered file watches pick up the symlink name.
+        // Drop canonicalize to preserve the original symlink path/name
         let path = file_path.to_path_buf();
 
+        // Index the file. If it fails, bubble up the error using '?'
         self.index_file(&path).await?;
 
-        Ok(path.exists().into()) // Keep any expected return type semantics intact
+        Ok(())
     }
 
     pub async fn scan(&self) -> anyhow::Result<()> {
@@ -246,18 +246,15 @@ impl MediaScanner {
     fn scan_directory(&self, dir_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
         let mut files = Vec::new();
 
-        // CHANGED: Removed .follow_links(true) to keep directory walkers out of symlinked folders
+        // Use WalkDir without following directory symlinks
         for entry in WalkDir::new(dir_path)
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            // CHANGED: Walkdir treats symlinks as files if they point to a file, 
-            // but we must check entry.path().is_file() without following link targets.
-            // Using standard fs metadata check ensures we handle symlinks safely:
-            let is_valid_target = if let Ok(metadata) = std::fs::symlink_metadata(entry.path()) {
-                metadata.is_file() || metadata.file_type().is_symlink()
-            } else {
-                false
+            // Safely fetch link metadata without traversing past it
+            let is_valid_target = match std::fs::symlink_metadata(entry.path()) {
+                Ok(metadata) => metadata.is_file() || metadata.file_type().is_symlink(),
+                Err(_) => false,
             };
 
             if !is_valid_target {
@@ -267,8 +264,7 @@ impl MediaScanner {
             if let Some(ext) = entry.path().extension() {
                 if let Some(ext_str) = ext.to_str() {
                     if VIDEO_EXTENSIONS.contains(&ext_str.to_lowercase().as_str()) {
-                        // FIXED: Removed `.canonicalize()`. 
-                        // This preserves the literal symlink path and its original file name!
+                        // Keep the exact path of the symlink file without canonicalizing it!
                         files.push(entry.path().to_path_buf());
                     }
                 }
@@ -276,7 +272,9 @@ impl MediaScanner {
         }
 
         Ok(files)
-    }    async fn index_file(&self, file_path: &Path) -> anyhow::Result<bool> {
+    }
+    
+    async fn index_file(&self, file_path: &Path) -> anyhow::Result<bool> {
         let file_name = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         tracing::debug!("Indexing: {}", file_name);
