@@ -1,6 +1,5 @@
 pub mod parser; 
 
-
 use crate::config::Config;
 use crate::index::types::{ContentType, FileInfo, ParsedMetadata};
 use crate::index::MediaIndex;
@@ -187,13 +186,21 @@ impl MediaScanner {
     }
 
     async fn add_file(&self, file_path: &Path) -> anyhow::Result<()> {
-        // Drop canonicalize to preserve the original symlink path/name
+        // Keep the original symlink path/name for parsing and indexing
         let path = file_path.to_path_buf();
+
+        // Safely grab the file size of the final destination if it's a symlink
+        if let Ok(target_metadata) = std::fs::metadata(file_path) {
+            tracing::debug!(
+                "Resolved symlink destination size: {} bytes",
+                target_metadata.len()
+            );
+        }
 
         // Index the file. If it fails, bubble up the error using '?'
         self.index_file(&path).await?;
 
-        Ok(())
+        Ok(true)
     }
 
     pub async fn scan(&self) -> anyhow::Result<()> {
@@ -247,15 +254,14 @@ impl MediaScanner {
     fn scan_directory(&self, dir_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
         let mut files = Vec::new();
 
-        // 1. Tell WalkDir to follow directory symlinks so it enters symlinked folders
+        // Use WalkDir without following directory symlinks
         for entry in WalkDir::new(dir_path)
-            .follow_links(true)
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            // 2. Use standard metadata() to ensure the target actually resolves to a real file
-            let is_valid_target = match std::fs::metadata(entry.path()) {
-                Ok(metadata) => metadata.is_file(),
+            // Safely fetch link metadata without traversing past it
+            let is_valid_target = match std::fs::symlink_metadata(entry.path()) {
+                Ok(metadata) => metadata.is_file() || metadata.file_type().is_symlink(),
                 Err(_) => false,
             };
 
@@ -266,7 +272,7 @@ impl MediaScanner {
             if let Some(ext) = entry.path().extension() {
                 if let Some(ext_str) = ext.to_str() {
                     if VIDEO_EXTENSIONS.contains(&ext_str.to_lowercase().as_str()) {
-                        // Keep the exact path found by walkdir (the symlink path/name)
+                        // Keep the exact path of the symlink file without canonicalizing it!
                         files.push(entry.path().to_path_buf());
                     }
                 }
