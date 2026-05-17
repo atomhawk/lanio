@@ -186,13 +186,13 @@ impl MediaScanner {
     }
 
     async fn add_file(&self, file_path: &Path) -> anyhow::Result<()> {
-        let path = file_path
-            .canonicalize()
-            .unwrap_or_else(|_| file_path.to_path_buf());
+        // FIXED: Removed `.canonicalize()` from single file processing too. 
+        // This ensures manually triggered file watches pick up the symlink name.
+        let path = file_path.to_path_buf();
 
         self.index_file(&path).await?;
 
-        Ok(())
+        Ok(path.exists().into()) // Keep any expected return type semantics intact
     }
 
     pub async fn scan(&self) -> anyhow::Result<()> {
@@ -246,33 +246,37 @@ impl MediaScanner {
     fn scan_directory(&self, dir_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
         let mut files = Vec::new();
 
+        // CHANGED: Removed .follow_links(true) to keep directory walkers out of symlinked folders
         for entry in WalkDir::new(dir_path)
-            .follow_links(true)
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            if !entry.file_type().is_file() {
+            // CHANGED: Walkdir treats symlinks as files if they point to a file, 
+            // but we must check entry.path().is_file() without following link targets.
+            // Using standard fs metadata check ensures we handle symlinks safely:
+            let is_valid_target = if let Ok(metadata) = std::fs::symlink_metadata(entry.path()) {
+                metadata.is_file() || metadata.file_type().is_symlink()
+            } else {
+                false
+            };
+
+            if !is_valid_target {
                 continue;
             }
 
             if let Some(ext) = entry.path().extension() {
                 if let Some(ext_str) = ext.to_str() {
                     if VIDEO_EXTENSIONS.contains(&ext_str.to_lowercase().as_str()) {
-                        files.push(
-                            entry
-                                .path()
-                                .canonicalize()
-                                .unwrap_or_else(|_| entry.path().to_path_buf()),
-                        );
+                        // FIXED: Removed `.canonicalize()`. 
+                        // This preserves the literal symlink path and its original file name!
+                        files.push(entry.path().to_path_buf());
                     }
                 }
             }
         }
 
         Ok(files)
-    }
-
-    async fn index_file(&self, file_path: &Path) -> anyhow::Result<bool> {
+    }    async fn index_file(&self, file_path: &Path) -> anyhow::Result<bool> {
         let file_name = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         tracing::debug!("Indexing: {}", file_name);
