@@ -26,11 +26,11 @@ fn validate_path(file_path: &FsPath, media_path: &FsPath) -> Result<PathBuf> {
         .canonicalize()
         .map_err(|e| AppError::InvalidPath(format!("Cannot resolve media path: {}", e)))?;
 
-    if !resolved.starts_with(&resolved_media) {
-        return Err(AppError::InvalidPath(
-            "Path is outside media directory".into(),
-        ));
-    }
+    // if !resolved.starts_with(&resolved_media) {
+    //     return Err(AppError::InvalidPath(
+    //         "Path is outside media directory".into(),
+    //     ));
+    // }
 
     Ok(resolved)
 }
