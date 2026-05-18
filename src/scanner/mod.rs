@@ -332,7 +332,7 @@ async fn index_file(&self, file_path: &Path) -> anyhow::Result<bool> {
     let Some(metadata) = metadata else {
         tracing::warn!("Could not find IMDb ID for: {}", title);
         return Ok(false);
-    }
+    };
 
     // 2. RESOLVE the symlink destination ONLY for playback purposes
     // This translates the symlink to the real rclone WebDAV file path
