@@ -282,103 +282,102 @@ impl MediaScanner {
         Ok(files)
     }
     
-async fn index_file(&self, file_path: &Path) -> anyhow::Result<bool> {
-    // 1. ALWAYS use the original symlink path/name for parsing metadata
-    let file_name = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    async fn index_file(&self, file_path: &Path) -> anyhow::Result<bool> {
+        let file_name = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-    tracing::debug!("Indexing via symlink name: {}", file_name);
+        tracing::debug!("Indexing: {}", file_name);
 
-    // Parse filename (Radarr's beautiful curated name)
-    let parsed = parse_filename(file_name);
+        // Parse filename
+        let parsed = parse_filename(file_name);
 
-    let mut title = parsed.title.clone();
-    let mut year = parsed.year;
-    let mut imdb_id = extract_imdb_id(file_name);
+        let mut title = parsed.title.clone();
+        let mut year = parsed.year;
 
-    // For series, check parent directory of the symlink
-    if parsed.is_series {
-        if let Some(parent) = file_path.parent() {
-            if let Some(parent_name) = parent.file_name().and_then(|n| n.to_str()) {
-                if imdb_id.is_none() {
-                    imdb_id = extract_imdb_id(parent_name);
-                }
-                if title.is_empty() {
-                    let parent_parsed = parse_filename(parent_name);
-                    if !parent_parsed.title.is_empty() {
-                        title = parent_parsed.title;
-                        if year.is_none() {
-                            year = parent_parsed.year;
+        // Check for IMDb ID override in filename
+        let mut imdb_id = extract_imdb_id(file_name);
+
+        // For series, check parent directory
+        if parsed.is_series {
+            if let Some(parent) = file_path.parent() {
+                if let Some(parent_name) = parent.file_name().and_then(|n| n.to_str()) {
+                    // Check for IMDb ID in parent directory
+                    if imdb_id.is_none() {
+                        imdb_id = extract_imdb_id(parent_name);
+                    }
+
+                    // Use parent directory as series title if filename didn't have one
+                    if title.is_empty() {
+                        let parent_parsed = parse_filename(parent_name);
+                        if !parent_parsed.title.is_empty() {
+                            title = parent_parsed.title;
+                            if year.is_none() {
+                                year = parent_parsed.year;
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    if title.is_empty() {
-        tracing::warn!("Could not extract title from: {}", file_name);
-        return Ok(false);
-    }
-
-    // Lookup metadata via TMDB using the clean title/ID
-    let metadata = if let Some(imdb_id) = imdb_id {
-        self.tmdb_client.get_metadata_by_imdb_id(&imdb_id).await
-    } else if parsed.is_series {
-        self.tmdb_client.search_tv_show(&title, year).await
-    } else {
-        self.tmdb_client.search_movie(&title, year).await
-    };
-
-    let Some(metadata) = metadata else {
-        tracing::warn!("Could not find IMDb ID for: {}", title);
-        return Ok(false);
-    };
-
-    // 2. RESOLVE the symlink destination ONLY for playback purposes
-    // This translates the symlink to the real rclone WebDAV file path
-    let playback_path = match std::fs::canonicalize(file_path) {
-        Ok(canonical) => {
-            tracing::debug!("Mapped playback path to target: {:?}", canonical);
-            canonical
+        // After trying parent directory for series, check if we have a title
+        if title.is_empty() {
+            tracing::warn!(
+                "Could not extract title from: {} {}",
+                file_name,
+                if parsed.is_series {
+                    "or parent directory"
+                } else {
+                    ""
+                }
+            );
+            return Ok(false);
         }
-        Err(e) => {
-            tracing::warn!("Failed to canonicalize symlink {:?}: {}. Falling back to symlink path.", file_path, e);
-            file_path.to_path_buf()
-        }
-    };
 
-    // Create FileInfo
-    let file_info = FileInfo {
-        imdb_id: metadata.imdb_id.clone(),
-        title, // Keeps clean title
-        year,
-        content_type: if parsed.is_series {
-            ContentType::Series
+        // Lookup metadata via TMDB
+        let metadata = if let Some(imdb_id) = imdb_id {
+            tracing::debug!("Found IMDb ID override: {}", imdb_id);
+            self.tmdb_client.get_metadata_by_imdb_id(&imdb_id).await
+        } else if parsed.is_series {
+            self.tmdb_client.search_tv_show(&title, year).await
         } else {
-            ContentType::Movie
-        },
-        // CRITICAL: Pass the resolved gibberish path to the streaming engine, 
-        // while everything else remains tied to the clean metadata.
-        file_path: playback_path, 
-        parsed: ParsedMetadata {
-            season: parsed.season,
-            episode: parsed.episode,
-        },
-        poster: metadata.poster_url.clone(),
-    };
+            self.tmdb_client.search_movie(&title, year).await
+        };
 
-    // Add to index
-    match file_info.content_type {
-        ContentType::Movie => {
-            self.index.insert_movie(metadata.imdb_id.clone(), file_info);
+        let Some(metadata) = metadata else {
+            tracing::warn!("Could not find IMDb ID for: {}", title);
+            return Ok(false);
+        };
+
+        // Create FileInfo
+        let file_info = FileInfo {
+            imdb_id: metadata.imdb_id.clone(),
+            title,
+            year,
+            content_type: if parsed.is_series {
+                ContentType::Series
+            } else {
+                ContentType::Movie
+            },
+            file_path: file_path.to_path_buf(),
+            parsed: ParsedMetadata {
+                season: parsed.season,
+                episode: parsed.episode,
+            },
+            poster: metadata.poster_url.clone(),
+        };
+
+        // Add to index
+        match file_info.content_type {
+            ContentType::Movie => {
+                self.index.insert_movie(metadata.imdb_id.clone(), file_info);
+            }
+            ContentType::Series => {
+                self.index.insert_episode(metadata.imdb_id, file_info);
+            }
         }
-        ContentType::Series => {
-            self.index.insert_episode(metadata.imdb_id, file_info);
-        }
+
+        Ok(true)
     }
-
-    Ok(true)
-}
 }
 
 #[cfg(test)]
