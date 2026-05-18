@@ -281,6 +281,7 @@ impl MediaScanner {
 
         Ok(files)
     }
+    
 async fn index_file(&self, file_path: &Path) -> anyhow::Result<bool> {
     // 1. ALWAYS use the original symlink path/name for parsing metadata
     let file_name = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -377,7 +378,8 @@ async fn index_file(&self, file_path: &Path) -> anyhow::Result<bool> {
     }
 
     Ok(true)
-}    
+}
+}
 
 #[cfg(test)]
 mod tests {
